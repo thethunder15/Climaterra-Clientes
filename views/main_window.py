@@ -42,7 +42,7 @@ class CadastroClienteDialog(QDialog):
 
         # Configuração do QLineEdit para CPF/CNPJ com máscara dinâmica
         self.cpf_cnpj = QLineEdit()
-        self.cpf_cnpj.setInputMask('000.000.000-00;_')
+        self.cpf_cnpj.setPlaceholderText("Digite CPF ou CNPJ")
         self.cpf_cnpj.textChanged.connect(self.atualizarMascaraCpfCnpj)
 
         self.email = QLineEdit()
@@ -154,13 +154,26 @@ class CadastroClienteDialog(QDialog):
             self.telefone.blockSignals(False)
 
     def atualizarMascaraCpfCnpj(self, text):
-        # Remove caracteres não numéricos para contar os dígitos
+        # Remove caracteres não numéricos
         digits = ''.join(filter(str.isdigit, text))
-        # Se tiver mais de 11 dígitos, assume CNPJ (14 dígitos)
-        new_mask = '00.000.000/0000-00;_' if len(digits) > 11 else '000.000.000-00;_'
+
+        # Define a máscara com base no comprimento dos dígitos
+        if len(digits) <= 11:
+            new_mask = '000.000.000-00;_'
+        else:
+            new_mask = '00.000.000/0000-00;_'
+
+        # Atualiza a máscara apenas se necessário
         if self.cpf_cnpj.inputMask() != new_mask:
             self.cpf_cnpj.blockSignals(True)
             self.cpf_cnpj.setInputMask(new_mask)
+
+            # Mantém os dígitos e preenche com placeholders para a máscara
+            if len(digits) > 14:  # Limita para 14 dígitos (CNPJ)
+                digits = digits[:14]
+            elif len(digits) > 11 and len(digits) < 14:  # Completa com placeholders
+                digits = digits.ljust(14, '_')
+
             self.cpf_cnpj.setText(digits)
             self.cpf_cnpj.blockSignals(False)
 
