@@ -2,13 +2,16 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QLabel, QLineEdit, QComboBox, QDateEdit,
                              QCheckBox, QPushButton, QTableWidget,
                              QTableWidgetItem, QMessageBox, QDialog,
-                             QFormLayout, QStackedWidget, QListWidget, QFileDialog, QScrollArea,QApplication)
+                             QFormLayout, QStackedWidget, QListWidget, QFileDialog, QScrollArea, QApplication
+                             )
 from PyQt5.QtGui import QIcon, QColor, QPixmap
 from PyQt5.QtCore import Qt, QDate, QSize
 from datetime import datetime, timedelta
 from utils.status_helper import calcular_status
 from database.database import Database
 from utils.validators import validar_cpf_cnpj, validar_email
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
 import traceback
 import sys
 import os
@@ -436,6 +439,11 @@ class MainWindow(QMainWindow):
         botao_comprovante.setIconSize(QSize(20, 20))
         botao_comprovante.clicked.connect(self.ver_comprovante)
 
+        botao_relatorio = QPushButton('Relatório')
+        botao_relatorio.setIcon(QIcon('icones/chart.png'))
+        botao_relatorio.setIconSize(QSize(20, 20))
+        botao_relatorio.clicked.connect(self.abrir_janela_relatorio)
+
         layout_botoes.addWidget(botao_adicionar)
         layout_botoes.addWidget(botao_editar)
         layout_botoes.addWidget(botao_remover)
@@ -443,6 +451,7 @@ class MainWindow(QMainWindow):
         layout_botoes.addWidget(botao_listar)
         layout_botoes.addWidget(botao_renovar)
         layout_botoes.addWidget(botao_comprovante)
+        layout_botoes.addWidget(botao_relatorio)
 
         layout_principal.addWidget(self.tabela_clientes)
         layout_principal.addLayout(layout_botoes)
@@ -497,7 +506,6 @@ class MainWindow(QMainWindow):
         except Exception as e:
             traceback.print_exc()
             QMessageBox.critical(self, 'Erro', f'Erro ao atualizar tabela: {str(e)}')
-
 
     def adicionar_cliente(self):
         dialog = CadastroClienteDialog(self)
@@ -697,6 +705,10 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, 'Erro', f'Erro ao visualizar comprovante: {str(e)}')
             traceback.print_exc()
+
+    def abrir_janela_relatorio(self):
+        dialog = RelatorioDialog(self)
+        dialog.exec_()
 
 class PesquisaClienteDialog(QDialog):
     def __init__(self, parent=None):
@@ -951,4 +963,131 @@ class ComprovanteDialog(QDialog):
             self.resize(new_width, new_height)
         else:
             QMessageBox.warning(self, 'Erro', 'Comprovante não encontrado.')
+
+class RelatorioDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('Relatórios')
+        self.setMinimumSize(800, 600)
+        self.database = Database()
+        self.current_figure = None
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout()
+
+        # Botões superiores
+        btn_top_layout = QHBoxLayout()
+        self.btn_estado = QPushButton('Estado', self)
+        self.btn_estado.clicked.connect(self.gerar_relatorio_estado)
+        self.btn_municipio = QPushButton('Município', self)
+        self.btn_municipio.clicked.connect(self.gerar_relatorio_municipio)
+
+        btn_top_layout.addWidget(self.btn_estado)
+        btn_top_layout.addWidget(self.btn_municipio)
+
+        # Área do gráfico
+        self.figure = Figure()
+        self.canvas = FigureCanvas(self.figure)
+
+        # Botão de exportação
+        btn_exportar = QPushButton('Exportar Gráfico', self)
+        btn_exportar.setIcon(QIcon.fromTheme('document-save-as'))
+        btn_exportar.clicked.connect(self.exportar_grafico)
+
+        layout.addLayout(btn_top_layout)
+        layout.addWidget(self.canvas)
+        layout.addWidget(btn_exportar, alignment=Qt.AlignRight)
+
+        self.setLayout(layout)
+
+    def exportar_grafico(self):
+        if not self.current_figure:
+            QMessageBox.warning(self, 'Aviso', 'Gere um gráfico antes de exportar!')
+            return
+
+        options = QFileDialog.Options()
+        file_name, _ = QFileDialog.getSaveFileName(
+            self,
+            "Salvar Gráfico",
+            "",
+            "PNG (*.png);;PDF (*.pdf);;SVG (*.svg)",
+            options=options
+        )
+
+        if file_name:
+            try:
+                self.current_figure.savefig(
+                    file_name,
+                    format=file_name.split('.')[-1].lower(),
+                    bbox_inches='tight',
+                    dpi=100  # Volte para DPI padrão
+                )
+                QMessageBox.information(self, 'Sucesso', f'Gráfico exportado com sucesso!\n{file_name}')
+            except Exception as e:
+                QMessageBox.critical(self, 'Erro', f'Falha ao exportar gráfico:\n{str(e)}')
+
+    def gerar_relatorio_estado(self):
+        clientes = self.database.listar_clientes()
+        estados = [cliente[11] for cliente in clientes if cliente[11]]
+
+        # Contagem por estado
+        contagem = {}
+        for estado in estados:
+            contagem[estado] = contagem.get(estado, 0) + 1
+
+        self.plot_pie_chart(contagem, 'Distribuição de Clientes por Estado')
+
+    def gerar_relatorio_municipio(self):
+        clientes = self.database.listar_clientes()
+        municipios = [f"{cliente[12]} ({cliente[11]})" for cliente in clientes if cliente[12]]
+
+        # Contagem por município
+        contagem = {}
+        for municipio in municipios:
+            contagem[municipio] = contagem.get(municipio, 0) + 1
+
+        self.plot_bar_chart(contagem, 'Distribuição de Clientes por Município')
+
+    def plot_pie_chart(self, data, title):
+        self.figure.clear()
+        ax = self.figure.add_subplot(111)
+
+        labels = list(data.keys())
+        sizes = list(data.values())
+
+        ax.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90)
+        ax.axis('equal')
+        ax.set_title(title)
+
+        self.current_figure = self.figure
+        self.canvas.draw()
+
+    def plot_bar_chart(self, data, title):
+        self.figure.clear()
+        ax = self.figure.add_subplot(111)
+
+        labels = list(data.keys())
+        values = list(data.values())
+        total = sum(values)
+
+        # Ordenar por quantidade
+        sorted_data = sorted(zip(labels, values), key=lambda x: x[1], reverse=True)
+        labels = [item[0] for item in sorted_data]
+        values = [item[1] for item in sorted_data]
+        porcentagens = [f'{(v/total)*100:.1f}%' for v in values]
+
+        bars = ax.bar(labels, values)
+        ax.set_title(title)
+        ax.set_xticklabels(labels, rotation=45, ha='right')
+
+        # Adicionar labels
+        for bar, porcentagem in zip(bars, porcentagens):
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{height}\n({porcentagem})',
+                    ha='center', va='bottom')
+
+        self.current_figure = self.figure
+        self.canvas.draw()
 
