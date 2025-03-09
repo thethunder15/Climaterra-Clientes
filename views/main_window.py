@@ -181,11 +181,10 @@ class MainWindow(QMainWindow):
                         valor = CadastroClienteDialog.formatar_cpf_cnpj(valor)
                     elif coluna == 8:  # Comprovante (já tratado)
                         continue
-                    elif coluna == 9:  # Data Aviso
+                    elif coluna in [6, 7, 9]:  # Último Pagamento, Vencimento, Data Aviso
                         try:
-                            data = datetime.strptime(valor, "%Y-%m-%d").strftime("%d/%m/%Y")
-                            valor = data
-                        except:
+                            valor = datetime.strptime(valor, "%Y-%m-%d").strftime("%d/%m/%Y")
+                        except Exception:
                             pass
                     elif coluna == 10:  # Avisado
                         valor = "SIM" if valor == "1" else "NÃO"
