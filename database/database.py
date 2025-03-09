@@ -181,3 +181,14 @@ class Database:
         except sqlite3.Error as e:
             print(f"Erro ao buscar cliente por ID: {e}")
             return None
+
+    # Exemplo de implementação na classe Database
+    def atualizar_aviso_cliente(self, cliente_id, data_aviso, avisado):
+        try:
+            cursor = self.conn.cursor()
+            sql = "UPDATE clientes SET data_aviso = ?, avisado = ? WHERE id = ?"
+            cursor.execute(sql, (data_aviso, avisado, cliente_id))
+            self.conn.commit()
+        except Exception as e:
+            print("Erro ao atualizar aviso:", e)
+            raise

@@ -2,7 +2,7 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QLabel, QLineEdit, QComboBox, QDateEdit,
                              QCheckBox, QPushButton, QTableWidget,
                              QTableWidgetItem, QMessageBox, QDialog,
-                             QFormLayout, QStackedWidget, QListWidget, QFileDialog, QScrollArea, QApplication
+                             QFormLayout, QListWidget, QFileDialog, QScrollArea, QApplication
                              )
 from PyQt5.QtGui import QIcon, QColor, QPixmap
 from PyQt5.QtCore import Qt, QDate, QSize
@@ -13,14 +13,399 @@ from utils.validators import validar_cpf_cnpj, validar_email
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import traceback
-import sys
 import os
 import hashlib
 import shutil
+from utils.whatsapp import enviar_mensagem_whatsapp
 
 COMPROVANTES_DIR = os.path.join(os.path.dirname(__file__), 'comprovantes')
 if not os.path.exists(COMPROVANTES_DIR):
     os.makedirs(COMPROVANTES_DIR, exist_ok=True)
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle('Climaterra - Gerenciamento de Clientes')
+        self.resize(1000, 600)
+
+        self.setWindowIcon(QIcon('icones/icone.png'))
+
+        # Inicializa o banco de dados
+        self.database = Database()
+
+        # Cria a interface gráfica
+        self.criar_interface()
+
+        # Recalcula os status e atualiza a tabela
+        self.recalcular_status_global()
+        self.atualizar_tabela()
+
+        # **Aqui garantimos que a janela será maximizada ao iniciar**
+        self.showMaximized()
+
+    def criar_interface(self):
+        """Cria todos os componentes da interface gráfica."""
+        widget_central = QWidget()
+        layout_principal = QVBoxLayout()
+
+        # Tabela de clientes
+        self.tabela_clientes = QTableWidget()
+        self.tabela_clientes.horizontalHeader().setSectionsMovable(True)
+        self.tabela_clientes.setColumnCount(13)  # Removido o ID
+        self.tabela_clientes.setHorizontalHeaderLabels([
+            'Nome', 'Telefone', 'CPF/CNPJ', 'E-mail', 'Período',
+            'Último Pagamento', 'Vencimento', 'Data Aviso', 'Avisado',
+            'Status', 'Estado', 'Municipio', 'Observação'
+        ])
+        self.tabela_clientes.setStyleSheet("""
+            QTableWidget {
+                alternate-background-color: #f8f8f8;
+                selection-background-color: #e0f0ff;
+            }
+        """)
+
+        # Oculta a coluna do ID
+        self.tabela_clientes.setColumnHidden(0, True)
+
+        # Habilita a ordenação ao clicar nos rótulos das colunas
+        self.tabela_clientes.setSortingEnabled(True)
+
+        # Botões de ação
+        layout_botoes = QHBoxLayout()
+
+        botao_adicionar = QPushButton('Adicionar')
+        botao_adicionar.setIcon(QIcon('icones/add.png'))
+        botao_adicionar.setIconSize(QSize(20, 20))
+        botao_adicionar.clicked.connect(self.adicionar_cliente)
+
+        botao_editar = QPushButton('Editar')
+        botao_editar.setIcon(QIcon('icones/edit.png'))
+        botao_editar.setIconSize(QSize(20, 20))
+        botao_editar.clicked.connect(self.editar_cliente)
+
+        botao_remover = QPushButton('Remover')
+        botao_remover.setIcon(QIcon('icones/delete.png'))
+        botao_remover.setIconSize(QSize(20, 20))
+        botao_remover.clicked.connect(self.remover_cliente)
+
+        botao_avisar = QPushButton('Avisar')
+        botao_avisar.setIcon(QIcon('icones/aviso.png'))
+        botao_avisar.setIconSize(QSize(20, 20))
+        botao_avisar.clicked.connect(self.avisar_cliente)
+
+        botao_pesquisar = QPushButton('Pesquisar')
+        botao_pesquisar.setIcon(QIcon('icones/search.png'))
+        botao_pesquisar.setIconSize(QSize(20, 20))
+        botao_pesquisar.clicked.connect(self.abrir_janela_pesquisa)
+
+        botao_listar = QPushButton('Listar Todos')
+        botao_listar.setIcon(QIcon('icones/refresh.png'))
+        botao_listar.setIconSize(QSize(20, 20))
+        botao_listar.clicked.connect(self.atualizar_tabela)
+
+        botao_renovar = QPushButton('Renovação')
+        botao_renovar.setIcon(QIcon('icones/money.png'))
+        botao_renovar.setIconSize(QSize(20, 20))
+        botao_renovar.clicked.connect(self.abrir_renovacao)
+
+        botao_comprovante = QPushButton('Ver Comprovante')
+        botao_comprovante.setIcon(QIcon('icones/request_quote.png'))
+        botao_comprovante.setIconSize(QSize(20, 20))
+        botao_comprovante.clicked.connect(self.ver_comprovante)
+
+        botao_relatorio = QPushButton('Relatório')
+        botao_relatorio.setIcon(QIcon('icones/chart.png'))
+        botao_relatorio.setIconSize(QSize(20, 20))
+        botao_relatorio.clicked.connect(self.abrir_janela_relatorio)
+
+        layout_botoes.addWidget(botao_adicionar)
+        layout_botoes.addWidget(botao_editar)
+        layout_botoes.addWidget(botao_remover)
+        layout_botoes.addWidget(botao_avisar)
+        layout_botoes.addWidget(botao_pesquisar)
+        layout_botoes.addWidget(botao_listar)
+        layout_botoes.addWidget(botao_renovar)
+        layout_botoes.addWidget(botao_comprovante)
+        layout_botoes.addWidget(botao_relatorio)
+
+        layout_principal.addWidget(self.tabela_clientes)
+        layout_principal.addLayout(layout_botoes)
+
+        widget_central.setLayout(layout_principal)
+        self.setCentralWidget(widget_central)
+
+        self.atualizar_tabela()
+
+    def atualizar_tabela(self):
+        try:
+            clientes = self.database.listar_clientes()
+            self.tabela_clientes.setRowCount(len(clientes))
+            self.tabela_clientes.setColumnCount(14)
+            headers = [
+                'ID', 'Nome', 'Telefone', 'CPF/CNPJ', 'E-mail', 'Período',
+                'Último Pagamento', 'Vencimento', 'Data Aviso', 'Avisado',
+                'Status', 'Estado', 'Municipio', 'Observação'
+            ]
+            self.tabela_clientes.setHorizontalHeaderLabels(headers)
+            self.tabela_clientes.setColumnHidden(0, True)
+
+            for linha, cliente in enumerate(clientes):
+                for coluna in range(14):
+                    # Obtém o valor ou string vazia se não houver
+                    valor = str(cliente[coluna]) if coluna < len(cliente) else ""
+
+                    # Formatação específica para CPF/CNPJ e Telefone
+                    if coluna == 2:  # Telefone
+                        valor = CadastroClienteDialog.formatar_telefone(valor)
+                    elif coluna == 3:  # CPF/CNPJ
+                        valor = CadastroClienteDialog.formatar_cpf_cnpj(valor)
+                    elif coluna == [6, 7, 8]:  # Data Aviso
+                        try:
+                            valor = datetime.strptime(valor, "%Y-%m-%d").strftime("%d/%m/%Y")
+                        except Exception:
+                            pass
+                    elif coluna == 9:  # Avisado (0 → NÃO, 1 → SIM)
+                        valor = "SIM" if valor == "1" else "NÃO"
+
+                    item = QTableWidgetItem(valor)
+
+                    # Definir alinhamento central para as colunas desejadas
+                    if coluna in [2, 3, 5, 6, 7, 8, 9, 10, 11, 12]:
+                        item.setTextAlignment(Qt.AlignCenter)
+
+                    # Exemplo de coloração de status
+                    if coluna == 10:  # Status
+                        cor = QColor(173, 216, 230) if valor == 'Expirando' else \
+                            QColor(255, 182, 193) if valor == 'Inadimplente' else None
+                        if cor:
+                            item.setBackground(cor)
+
+                    self.tabela_clientes.setItem(linha, coluna, item)
+        except Exception as e:
+            traceback.print_exc()
+            QMessageBox.critical(self, 'Erro', f'Erro ao atualizar tabela: {str(e)}')
+
+    def adicionar_cliente(self):
+        dialog = CadastroClienteDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            self.atualizar_tabela()
+
+    def editar_cliente(self):
+        try:
+            linha_selecionada = self.tabela_clientes.currentRow()
+            if linha_selecionada == -1:
+                QMessageBox.warning(self, 'Aviso', 'Selecione um cliente para editar')
+                return
+
+            # Verifica se a coluna do ID existe e está preenchida
+            if self.tabela_clientes.columnCount() < 1:
+                QMessageBox.critical(self, 'Erro', 'Estrutura da tabela incorreta')
+                return
+
+            id_item = self.tabela_clientes.item(linha_selecionada, 0)
+            if not id_item or not id_item.text().isdigit():
+                QMessageBox.critical(self, 'Erro', 'ID do cliente inválido ou não encontrado')
+                return
+
+            cliente_id = int(id_item.text())
+
+            # Busca o cliente usando o ID
+            cliente = self.database.obter_cliente_por_id(cliente_id)
+            if not cliente:
+                QMessageBox.warning(self, 'Erro', 'Cliente não encontrado no banco de dados')
+                return
+
+            # Abre a janela de edição
+            dialog = CadastroClienteDialog(self, cliente)
+            if dialog.exec_() == QDialog.Accepted:
+                self.atualizar_tabela()
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                'Erro',
+                f'Falha ao editar cliente:\n{str(e)}\nConsulte o console para detalhes.'
+            )
+            traceback.print_exc()
+
+    def remover_cliente(self):
+        linha_selecionada = self.tabela_clientes.currentRow()
+        if linha_selecionada >= 0:
+            try:
+                # Obter o ID REAL da lista de clientes, não da tabela
+                clientes = self.database.listar_clientes()
+
+                if linha_selecionada < len(clientes):
+                    cliente_id = clientes[linha_selecionada][0]  # ID está na posição 0 da tupla
+
+                    resposta = QMessageBox.question(
+                        self, 'Confirmar',
+                        'Tem certeza que deseja remover este cliente?',
+                        QMessageBox.Yes | QMessageBox.No
+                    )
+
+                    if resposta == QMessageBox.Yes:
+                        self.database.remover_cliente(cliente_id)
+                        self.atualizar_tabela()
+                else:
+                    QMessageBox.warning(self, 'Erro', 'Índice inválido')
+
+            except Exception as e:
+                QMessageBox.critical(self, 'Erro', f'Erro ao remover cliente: {str(e)}')
+                traceback.print_exc()
+        else:
+            QMessageBox.warning(self, 'Aviso', 'Selecione um cliente para remover')
+
+    def recalcular_status_global(self):
+        """Atualiza o status de todos os clientes no banco de dados"""
+        db = Database()
+        clientes = db.listar_clientes()
+
+        for cliente in clientes:
+            cliente_id = cliente[0]
+            vencimento = cliente[7]  # Índice do vencimento
+
+            novo_status = calcular_status(vencimento)
+            db.atualizar_status_cliente(cliente_id, novo_status)
+
+    def abrir_janela_pesquisa(self):
+        try:
+            dialog = PesquisaClienteDialog(self)
+            if dialog.exec_() == QDialog.Accepted:
+                criterio = dialog.criterio.currentText()
+                valores = dialog.get_valores_selecionados()
+                self.filtrar_tabela(criterio, valores)
+        except Exception as e:
+            QMessageBox.critical(self, 'Erro', f'Erro na janela de pesquisa: {str(e)}')
+            traceback.print_exc()
+
+    def filtrar_tabela(self, criterio: str, valores: list):
+        try:
+            if not valores:
+                self.atualizar_tabela()
+                return
+
+            # Validação especial para datas
+            if criterio == 'Vencimento (DD/MM/AAAA)':
+                valores = [v for v in valores if v.strip() != '']
+                if not valores:
+                    self.atualizar_tabela()
+                    return
+
+            clientes = self.database.pesquisar_clientes(criterio, valores)
+            self.exibir_resultados_pesquisa(clientes)
+
+        except Exception as e:
+            QMessageBox.critical(self, 'Erro', f'Erro na pesquisa: {str(e)}')
+            traceback.print_exc()
+
+    def exibir_resultados_pesquisa(self, clientes):
+        self.tabela_clientes.setRowCount(len(clientes))
+
+        # Índices das colunas de data
+        COLUNA_STATUS = 9  # Índice da coluna de status
+        colunas_datas = [5, 6]  # Último Pagamento e Vencimento
+
+        for linha, cliente in enumerate(clientes):
+            # Primeiro, adicione o ID na coluna 0 (mesmo que esteja oculta)
+            id_item = QTableWidgetItem(str(cliente[0]))
+            self.tabela_clientes.setItem(linha, 0, id_item)
+
+            # Depois, adicione os demais dados a partir da coluna 1
+            for coluna, valor in enumerate(cliente[1:], 1):  # Começa do índice 1
+                item = QTableWidgetItem(str(valor if valor is not None else ""))
+
+                # Converter datas para formato BR
+                if coluna - 1 in colunas_datas:  # -1 porque agora estamos começando do índice 1
+                    try:
+                        data_iso = datetime.strptime(str(valor), "%Y-%m-%d")
+                        item.setText(data_iso.strftime("%d/%m/%Y"))
+                    except (ValueError, TypeError):
+                        pass
+
+                # Aplicar cores baseadas no status
+                if coluna - 1 == COLUNA_STATUS:  # -1 pela mesma razão
+                    if valor == "Expirando":
+                        item.setBackground(QColor(173, 216, 230))  # Azul claro
+                    elif valor == "Inadimplente":
+                        item.setBackground(QColor(255, 182, 193))  # Vermelho claro
+                    item.setForeground(QColor(0, 0, 0))  # Texto preto para contraste
+
+                self.tabela_clientes.setItem(linha, coluna, item)
+
+    def abrir_renovacao(self):
+        linha_selecionada = self.tabela_clientes.currentRow()
+        if linha_selecionada >= 0:
+            clientes = self.database.listar_clientes()
+            if 0 <= linha_selecionada < len(clientes):
+                cliente = clientes[linha_selecionada]
+                dialog = RenovacaoDialog(self, cliente)
+                if dialog.exec_() == QDialog.Accepted:
+                    self.atualizar_tabela()
+
+    def ver_comprovante(self):
+        try:
+            linha_selecionada = self.tabela_clientes.currentRow()
+            if linha_selecionada == -1:
+                QMessageBox.warning(self, 'Aviso', 'Selecione um cliente para visualizar o comprovante.')
+                return
+
+            # Obtém o ID do cliente selecionado
+            id_item = self.tabela_clientes.item(linha_selecionada, 0)
+            if not id_item or not id_item.text().isdigit():
+                QMessageBox.critical(self, 'Erro', 'ID do cliente inválido ou não encontrado.')
+                return
+
+            cliente_id = int(id_item.text())
+
+            # Busca o cliente no banco de dados
+            cliente = self.database.obter_cliente_por_id(cliente_id)
+            if not cliente:
+                QMessageBox.warning(self, 'Erro', 'Cliente não encontrado no banco de dados.')
+                return
+
+            # Verifica se há um comprovante associado
+            comprovante_hash = cliente.get('comprovante', None)
+            if not comprovante_hash:
+                QMessageBox.information(self, 'Informação', 'Nenhum comprovante encontrado para este cliente.')
+                return
+
+            # Monta o caminho completo do comprovante
+            comprovante_path = os.path.join(COMPROVANTES_DIR, comprovante_hash)
+            if not os.path.exists(comprovante_path):
+                QMessageBox.warning(self, 'Erro', 'Arquivo do comprovante não encontrado.')
+                return
+
+            # Abre a janela de visualização do comprovante
+            dialog = ComprovanteDialog(comprovante_path, self)
+            dialog.exec_()
+
+        except Exception as e:
+            QMessageBox.critical(self, 'Erro', f'Erro ao visualizar comprovante: {str(e)}')
+            traceback.print_exc()
+
+    def abrir_janela_relatorio(self):
+        dialog = RelatorioDialog(self)
+        dialog.exec_()
+
+    def avisar_cliente(self):
+        linha_selecionada = self.tabela_clientes.currentRow()
+        if linha_selecionada == -1:
+            QMessageBox.warning(self, "Aviso", "Selecione um cliente para avisar.")
+            return
+        id_item = self.tabela_clientes.item(linha_selecionada, 0)
+        if not id_item or not id_item.text().isdigit():
+            QMessageBox.critical(self, "Erro", "ID do cliente inválido ou não encontrado.")
+            return
+        cliente_id = int(id_item.text())
+        cliente = self.database.obter_cliente_por_id(cliente_id)
+        if not cliente:
+            QMessageBox.warning(self, "Erro", "Cliente não encontrado.")
+            return
+
+        dialog = AvisoClienteDialog(self, cliente)
+        if dialog.exec_() == QDialog.Accepted:
+            self.atualizar_tabela()
 
 
 class CadastroClienteDialog(QDialog):
@@ -376,352 +761,6 @@ class CadastroClienteDialog(QDialog):
             QMessageBox.critical(self, 'Erro', f'Falha ao carregar arquivo: {str(e)}')
             import traceback
             traceback.print_exc()
-
-class MainWindow(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle('Climaterra - Gerenciamento de Clientes')
-        self.resize(1000, 600)
-
-        # Inicializa o banco de dados
-        self.database = Database()
-
-        # Cria a interface gráfica
-        self.criar_interface()
-
-        # Recalcula os status e atualiza a tabela
-        self.recalcular_status_global()
-        self.atualizar_tabela()
-
-    def criar_interface(self):
-        """Cria todos os componentes da interface gráfica."""
-        widget_central = QWidget()
-        layout_principal = QVBoxLayout()
-
-        # Tabela de clientes
-        self.tabela_clientes = QTableWidget()
-        self.tabela_clientes.horizontalHeader().setSectionsMovable(True)
-        self.tabela_clientes.setColumnCount(13)  # Removido o ID
-        self.tabela_clientes.setHorizontalHeaderLabels([
-            'Nome', 'Telefone', 'CPF/CNPJ', 'E-mail', 'Período',
-            'Último Pagamento', 'Vencimento', 'Data Aviso', 'Avisado',
-            'Status', 'Estado', 'Municipio', 'Observação'
-        ])
-        self.tabela_clientes.setStyleSheet("""
-            QTableWidget {
-                alternate-background-color: #f8f8f8;
-                selection-background-color: #e0f0ff;
-            }
-        """)
-
-        # Botões de ação
-        layout_botoes = QHBoxLayout()
-
-        botao_adicionar = QPushButton('Adicionar')
-        botao_adicionar.setIcon(QIcon('icones/add.png'))
-        botao_adicionar.setIconSize(QSize(20, 20))
-        botao_adicionar.clicked.connect(self.adicionar_cliente)
-
-        botao_editar = QPushButton('Editar')
-        botao_editar.setIcon(QIcon('icones/edit.png'))
-        botao_editar.setIconSize(QSize(20, 20))
-        botao_editar.clicked.connect(self.editar_cliente)
-
-        botao_remover = QPushButton('Remover')
-        botao_remover.setIcon(QIcon('icones/delete.png'))
-        botao_remover.setIconSize(QSize(20, 20))
-        botao_remover.clicked.connect(self.remover_cliente)
-
-        botao_pesquisar = QPushButton('Pesquisar')
-        botao_pesquisar.setIcon(QIcon('icones/search.png'))
-        botao_pesquisar.setIconSize(QSize(20, 20))
-        botao_pesquisar.clicked.connect(self.abrir_janela_pesquisa)
-
-        botao_listar = QPushButton('Listar Todos')
-        botao_listar.setIcon(QIcon('icones/refresh.png'))
-        botao_listar.setIconSize(QSize(20, 20))
-        botao_listar.clicked.connect(self.atualizar_tabela)
-
-        botao_renovar = QPushButton('Renovação')
-        botao_renovar.setIcon(QIcon('icones/money.png'))
-        botao_renovar.setIconSize(QSize(20, 20))
-        botao_renovar.clicked.connect(self.abrir_renovacao)
-
-        botao_comprovante = QPushButton('Ver Comprovante')
-        botao_comprovante.setIcon(QIcon('icones/request_quote.png'))
-        botao_comprovante.setIconSize(QSize(20, 20))
-        botao_comprovante.clicked.connect(self.ver_comprovante)
-
-        botao_relatorio = QPushButton('Relatório')
-        botao_relatorio.setIcon(QIcon('icones/chart.png'))
-        botao_relatorio.setIconSize(QSize(20, 20))
-        botao_relatorio.clicked.connect(self.abrir_janela_relatorio)
-
-        layout_botoes.addWidget(botao_adicionar)
-        layout_botoes.addWidget(botao_editar)
-        layout_botoes.addWidget(botao_remover)
-        layout_botoes.addWidget(botao_pesquisar)
-        layout_botoes.addWidget(botao_listar)
-        layout_botoes.addWidget(botao_renovar)
-        layout_botoes.addWidget(botao_comprovante)
-        layout_botoes.addWidget(botao_relatorio)
-
-        layout_principal.addWidget(self.tabela_clientes)
-        layout_principal.addLayout(layout_botoes)
-
-        widget_central.setLayout(layout_principal)
-        self.setCentralWidget(widget_central)
-        
-        self.atualizar_tabela()
-
-    def atualizar_tabela(self):
-        try:
-            clientes = self.database.listar_clientes()
-            self.tabela_clientes.setRowCount(len(clientes))
-            self.tabela_clientes.setColumnCount(14)
-            headers = [
-                'ID', 'Nome', 'Telefone', 'CPF/CNPJ', 'E-mail', 'Período',
-                'Último Pagamento', 'Vencimento', 'Data Aviso', 'Avisado',
-                'Status', 'Estado', 'Municipio', 'Observação'
-            ]
-            self.tabela_clientes.setHorizontalHeaderLabels(headers)
-            self.tabela_clientes.setColumnHidden(0, True)
-
-            for linha, cliente in enumerate(clientes):
-                for coluna in range(14):
-                    # Obtém o valor ou string vazia se não houver
-                    valor = str(cliente[coluna]) if coluna < len(cliente) else ""
-
-                    # Aplica a formatação nos campos Telefone e CPF/CNPJ
-                    if coluna == 2:  # Telefone
-                        valor = CadastroClienteDialog.formatar_telefone(valor)
-                    elif coluna == 3:  # CPF/CNPJ
-                        valor = CadastroClienteDialog.formatar_cpf_cnpj(valor)
-
-                    item = QTableWidgetItem(valor)
-
-                    # Exemplo: converter datas para dd/mm/yyyy para campos de data
-                    if coluna in [6, 7]:
-                        try:
-                            data = datetime.strptime(valor, "%Y-%m-%d").strftime("%d/%m/%Y")
-                            item.setText(data)
-                        except:
-                            pass
-
-                    # Exemplo de coloração de status
-                    if coluna == 10:  # Status
-                        cor = QColor(173, 216, 230) if valor == 'Expirando' else \
-                            QColor(255, 182, 193) if valor == 'Inadimplente' else None
-                        if cor:
-                            item.setBackground(cor)
-
-                    self.tabela_clientes.setItem(linha, coluna, item)
-        except Exception as e:
-            traceback.print_exc()
-            QMessageBox.critical(self, 'Erro', f'Erro ao atualizar tabela: {str(e)}')
-
-    def adicionar_cliente(self):
-        dialog = CadastroClienteDialog(self)
-        if dialog.exec_() == QDialog.Accepted:
-            self.atualizar_tabela()
-
-    def editar_cliente(self):
-        try:
-            linha_selecionada = self.tabela_clientes.currentRow()
-            if linha_selecionada == -1:
-                QMessageBox.warning(self, 'Aviso', 'Selecione um cliente para editar')
-                return
-
-            # Verifica se a coluna do ID existe e está preenchida
-            if self.tabela_clientes.columnCount() < 1:
-                QMessageBox.critical(self, 'Erro', 'Estrutura da tabela incorreta')
-                return
-
-            id_item = self.tabela_clientes.item(linha_selecionada, 0)
-            if not id_item or not id_item.text().isdigit():
-                QMessageBox.critical(self, 'Erro', 'ID do cliente inválido ou não encontrado')
-                return
-
-            cliente_id = int(id_item.text())
-
-            # Busca o cliente usando o ID
-            cliente = self.database.obter_cliente_por_id(cliente_id)
-            if not cliente:
-                QMessageBox.warning(self, 'Erro', 'Cliente não encontrado no banco de dados')
-                return
-
-            # Abre a janela de edição
-            dialog = CadastroClienteDialog(self, cliente)
-            if dialog.exec_() == QDialog.Accepted:
-                self.atualizar_tabela()
-
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                'Erro',
-                f'Falha ao editar cliente:\n{str(e)}\nConsulte o console para detalhes.'
-            )
-            traceback.print_exc()
-
-    def remover_cliente(self):
-        linha_selecionada = self.tabela_clientes.currentRow()
-        if linha_selecionada >= 0:
-            try:
-                # Obter o ID REAL da lista de clientes, não da tabela
-                clientes = self.database.listar_clientes()
-
-                if linha_selecionada < len(clientes):
-                    cliente_id = clientes[linha_selecionada][0]  # ID está na posição 0 da tupla
-
-                    resposta = QMessageBox.question(
-                        self, 'Confirmar',
-                        'Tem certeza que deseja remover este cliente?',
-                        QMessageBox.Yes | QMessageBox.No
-                    )
-
-                    if resposta == QMessageBox.Yes:
-                        self.database.remover_cliente(cliente_id)
-                        self.atualizar_tabela()
-                else:
-                    QMessageBox.warning(self, 'Erro', 'Índice inválido')
-
-            except Exception as e:
-                QMessageBox.critical(self, 'Erro', f'Erro ao remover cliente: {str(e)}')
-                traceback.print_exc()
-        else:
-            QMessageBox.warning(self, 'Aviso', 'Selecione um cliente para remover')
-
-    def recalcular_status_global(self):
-        """Atualiza o status de todos os clientes no banco de dados"""
-        db = Database()
-        clientes = db.listar_clientes()
-
-        for cliente in clientes:
-            cliente_id = cliente[0]
-            vencimento = cliente[7]  # Índice do vencimento
-
-            novo_status = calcular_status(vencimento)
-            db.atualizar_status_cliente(cliente_id, novo_status)
-
-    def abrir_janela_pesquisa(self):
-        try:
-            dialog = PesquisaClienteDialog(self)
-            if dialog.exec_() == QDialog.Accepted:
-                criterio = dialog.criterio.currentText()
-                valores = dialog.get_valores_selecionados()
-                self.filtrar_tabela(criterio, valores)
-        except Exception as e:
-            QMessageBox.critical(self, 'Erro', f'Erro na janela de pesquisa: {str(e)}')
-            traceback.print_exc()
-
-    def filtrar_tabela(self, criterio: str, valores: list):
-        try:
-            if not valores:
-                self.atualizar_tabela()
-                return
-
-            # Validação especial para datas
-            if criterio == 'Vencimento (DD/MM/AAAA)':
-                valores = [v for v in valores if v.strip() != '']
-                if not valores:
-                    self.atualizar_tabela()
-                    return
-
-            clientes = self.database.pesquisar_clientes(criterio, valores)
-            self.exibir_resultados_pesquisa(clientes)
-
-        except Exception as e:
-            QMessageBox.critical(self, 'Erro', f'Erro na pesquisa: {str(e)}')
-            traceback.print_exc()
-
-    def exibir_resultados_pesquisa(self, clientes):
-        self.tabela_clientes.setRowCount(len(clientes))
-
-        # Índices das colunas de data
-        COLUNA_STATUS = 9  # Índice da coluna de status
-        colunas_datas = [5, 6]  # Último Pagamento e Vencimento
-
-        for linha, cliente in enumerate(clientes):
-            # Primeiro, adicione o ID na coluna 0 (mesmo que esteja oculta)
-            id_item = QTableWidgetItem(str(cliente[0]))
-            self.tabela_clientes.setItem(linha, 0, id_item)
-
-            # Depois, adicione os demais dados a partir da coluna 1
-            for coluna, valor in enumerate(cliente[1:], 1):  # Começa do índice 1
-                item = QTableWidgetItem(str(valor if valor is not None else ""))
-
-                # Converter datas para formato BR
-                if coluna - 1 in colunas_datas:  # -1 porque agora estamos começando do índice 1
-                    try:
-                        data_iso = datetime.strptime(str(valor), "%Y-%m-%d")
-                        item.setText(data_iso.strftime("%d/%m/%Y"))
-                    except (ValueError, TypeError):
-                        pass
-
-                # Aplicar cores baseadas no status
-                if coluna - 1 == COLUNA_STATUS:  # -1 pela mesma razão
-                    if valor == "Expirando":
-                        item.setBackground(QColor(173, 216, 230))  # Azul claro
-                    elif valor == "Inadimplente":
-                        item.setBackground(QColor(255, 182, 193))  # Vermelho claro
-                    item.setForeground(QColor(0, 0, 0))  # Texto preto para contraste
-
-                self.tabela_clientes.setItem(linha, coluna, item)
-
-    def abrir_renovacao(self):
-        linha_selecionada = self.tabela_clientes.currentRow()
-        if linha_selecionada >= 0:
-            clientes = self.database.listar_clientes()
-            if 0 <= linha_selecionada < len(clientes):
-                cliente = clientes[linha_selecionada]
-                dialog = RenovacaoDialog(self, cliente)
-                if dialog.exec_() == QDialog.Accepted:
-                    self.atualizar_tabela()
-
-    def ver_comprovante(self):
-        try:
-            linha_selecionada = self.tabela_clientes.currentRow()
-            if linha_selecionada == -1:
-                QMessageBox.warning(self, 'Aviso', 'Selecione um cliente para visualizar o comprovante.')
-                return
-
-            # Obtém o ID do cliente selecionado
-            id_item = self.tabela_clientes.item(linha_selecionada, 0)
-            if not id_item or not id_item.text().isdigit():
-                QMessageBox.critical(self, 'Erro', 'ID do cliente inválido ou não encontrado.')
-                return
-
-            cliente_id = int(id_item.text())
-
-            # Busca o cliente no banco de dados
-            cliente = self.database.obter_cliente_por_id(cliente_id)
-            if not cliente:
-                QMessageBox.warning(self, 'Erro', 'Cliente não encontrado no banco de dados.')
-                return
-
-            # Verifica se há um comprovante associado
-            comprovante_hash = cliente.get('comprovante', None)
-            if not comprovante_hash:
-                QMessageBox.information(self, 'Informação', 'Nenhum comprovante encontrado para este cliente.')
-                return
-
-            # Monta o caminho completo do comprovante
-            comprovante_path = os.path.join(COMPROVANTES_DIR, comprovante_hash)
-            if not os.path.exists(comprovante_path):
-                QMessageBox.warning(self, 'Erro', 'Arquivo do comprovante não encontrado.')
-                return
-
-            # Abre a janela de visualização do comprovante
-            dialog = ComprovanteDialog(comprovante_path, self)
-            dialog.exec_()
-
-        except Exception as e:
-            QMessageBox.critical(self, 'Erro', f'Erro ao visualizar comprovante: {str(e)}')
-            traceback.print_exc()
-
-    def abrir_janela_relatorio(self):
-        dialog = RelatorioDialog(self)
-        dialog.exec_()
 
 class PesquisaClienteDialog(QDialog):
     def __init__(self, parent=None):
@@ -1103,4 +1142,66 @@ class RelatorioDialog(QDialog):
 
         self.current_figure = self.figure
         self.canvas.draw()
+
+class AvisoClienteDialog(QDialog):
+    def __init__(self, parent=None, cliente=None):
+        super().__init__(parent)
+        self.setWindowTitle("Avisar Cliente")
+        self.cliente = cliente
+        # Utiliza o mesmo objeto Database do MainWindow
+        self.database = parent.database
+
+        layout = QFormLayout()
+
+        # Campo Data Aviso – já preenchido com a data atual
+        self.data_aviso = QDateEdit()
+        self.data_aviso.setDate(QDate.currentDate())
+        self.data_aviso.setCalendarPopup(True)
+        layout.addRow("Data Aviso:", self.data_aviso)
+
+        # Checkbox para Avisado
+        self.chk_avisado = QCheckBox("Avisado")
+        self.chk_avisado.setChecked(False)
+        layout.addRow("Avisado:", self.chk_avisado)
+
+        # Botão WhatsApp (ícone) para enviar mensagem
+        self.btn_whatsapp = QPushButton()
+        self.btn_whatsapp.setIcon(QIcon("icones/whatsapp.png"))
+        self.btn_whatsapp.setIconSize(QSize(24, 24))
+        self.btn_whatsapp.clicked.connect(self.enviar_whatsapp)
+
+        # Botões de ação: Salvar e Cancelar
+        self.btn_salvar = QPushButton("Salvar")
+        self.btn_salvar.clicked.connect(self.salvar_aviso)
+        self.btn_cancelar = QPushButton("Cancelar")
+        self.btn_cancelar.clicked.connect(self.reject)
+
+        # Layout horizontal para os botões
+        btn_layout = QHBoxLayout()
+        btn_layout.addWidget(self.btn_whatsapp)
+        btn_layout.addWidget(self.btn_salvar)
+        btn_layout.addWidget(self.btn_cancelar)
+
+        layout.addRow(btn_layout)
+        self.setLayout(layout)
+
+    def salvar_aviso(self):
+        # Recupera a data em formato 'yyyy-MM-dd'
+        data_aviso_str = self.data_aviso.date().toString("yyyy-MM-dd")
+        # Define o valor do campo Avisado: 1 para SIM se estiver marcado, senão 0
+        avisado_valor = 1 if self.chk_avisado.isChecked() else 0
+
+        # Obtém o ID do cliente (considerando que no BD o cliente pode ser um dicionário ou tupla)
+        cliente_id = self.cliente['id'] if isinstance(self.cliente, dict) else self.cliente[0]
+
+        # Chama um método do banco de dados para atualizar os campos "data_aviso" e "avisado"
+        # (Você precisará implementar esse método na sua classe Database, por exemplo, atualizar_aviso_cliente)
+        self.database.atualizar_aviso_cliente(cliente_id, data_aviso_str, avisado_valor)
+
+        self.accept()
+
+    def enviar_whatsapp(self):
+        # Recupera o telefone do cliente – adapte conforme sua estrutura de dados
+        telefone = self.cliente['telefone'] if isinstance(self.cliente, dict) else self.cliente[2]
+        enviar_mensagem_whatsapp(telefone)
 
