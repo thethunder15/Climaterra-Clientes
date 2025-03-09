@@ -51,10 +51,10 @@ class MainWindow(QMainWindow):
         # Tabela de clientes
         self.tabela_clientes = QTableWidget()
         self.tabela_clientes.horizontalHeader().setSectionsMovable(True)
-        self.tabela_clientes.setColumnCount(13)  # Removido o ID
+        self.tabela_clientes.setColumnCount(15)  # Removido o ID
         self.tabela_clientes.setHorizontalHeaderLabels([
-            'Nome', 'Telefone', 'CPF/CNPJ', 'E-mail', 'Período',
-            'Último Pagamento', 'Vencimento', 'Data Aviso', 'Avisado',
+            'ID','Nome', 'Telefone', 'CPF/CNPJ', 'E-mail', 'Período',
+            'Último Pagamento', 'Vencimento', 'Comprovante', 'Data Aviso', 'Avisado',
             'Status', 'Estado', 'Municipio', 'Observação'
         ])
         self.tabela_clientes.setStyleSheet("""
@@ -140,47 +140,70 @@ class MainWindow(QMainWindow):
         try:
             clientes = self.database.listar_clientes()
             self.tabela_clientes.setRowCount(len(clientes))
-            self.tabela_clientes.setColumnCount(14)
+            self.tabela_clientes.setColumnCount(15)  # Mantenha as 15 colunas
             headers = [
-                'ID', 'Nome', 'Telefone', 'CPF/CNPJ', 'E-mail', 'Período',
-                'Último Pagamento', 'Vencimento', 'Data Aviso', 'Avisado',
+                'ID','Nome', 'Telefone', 'CPF/CNPJ', 'E-mail', 'Período',
+                'Último Pagamento', 'Vencimento', 'Comprovante', 'Data Aviso', 'Avisado',
                 'Status', 'Estado', 'Municipio', 'Observação'
             ]
             self.tabela_clientes.setHorizontalHeaderLabels(headers)
-            self.tabela_clientes.setColumnHidden(0, True)
+            self.tabela_clientes.setColumnHidden(0, True)  # ID permanece oculto
 
             for linha, cliente in enumerate(clientes):
-                for coluna in range(14):
-                    # Obtém o valor ou string vazia se não houver
-                    valor = str(cliente[coluna]) if coluna < len(cliente) else ""
+                for coluna in range(15):  # Itera todas as 15 colunas
+                    if coluna == 0:  # ID (coluna 0, oculta)
+                        valor = str(cliente[0])
+                        item = QTableWidgetItem(valor)
+                        self.tabela_clientes.setItem(linha, 0, item)
+                        continue
 
-                    # Formatação específica para CPF/CNPJ e Telefone
+                    if coluna == 8:  # Comprovante (coluna 8)
+                        comprovante = cliente[14]  # Campo "comprovante" está na última posição (índice 14)
+                        if comprovante:
+                            label = QLabel()
+                            pixmap = QPixmap("icones/check.png").scaled(20, 20)
+                            label.setPixmap(pixmap)
+                            label.setAlignment(Qt.AlignCenter)
+                            self.tabela_clientes.setCellWidget(linha, 8, label)
+                        continue
+
+                    # Mapeamento correto dos índices do banco para a tabela:
+                    # Colunas antes de "Comprovante" (0-7) → índices 1-8 do banco
+                    # Colunas após "Comprovante" (9-14) → índices 9-13 do banco (descontando o "comprovante" no final)
+                    cliente_idx = coluna if coluna <= 7 else (coluna - 1)
+
+                    valor = str(cliente[cliente_idx]) if cliente_idx < len(cliente) else ""
+
+                    # Formatações específicas (telefone, CPF/CNPJ, datas, etc.)
                     if coluna == 2:  # Telefone
                         valor = CadastroClienteDialog.formatar_telefone(valor)
                     elif coluna == 3:  # CPF/CNPJ
                         valor = CadastroClienteDialog.formatar_cpf_cnpj(valor)
-                    elif coluna == [6, 7, 8]:  # Data Aviso
+                    elif coluna == 8:  # Comprovante (já tratado)
+                        continue
+                    elif coluna == 9:  # Data Aviso
                         try:
-                            valor = datetime.strptime(valor, "%Y-%m-%d").strftime("%d/%m/%Y")
-                        except Exception:
+                            data = datetime.strptime(valor, "%Y-%m-%d").strftime("%d/%m/%Y")
+                            valor = data
+                        except:
                             pass
-                    elif coluna == 9:  # Avisado (0 → NÃO, 1 → SIM)
+                    elif coluna == 10:  # Avisado
                         valor = "SIM" if valor == "1" else "NÃO"
 
+                    # Definição do item da tabela
                     item = QTableWidgetItem(valor)
+                    item.setTextAlignment(Qt.AlignCenter)  # Centraliza o texto
 
-                    # Definir alinhamento central para as colunas desejadas
-                    if coluna in [2, 3, 5, 6, 7, 8, 9, 10, 11, 12]:
-                        item.setTextAlignment(Qt.AlignCenter)
-
-                    # Exemplo de coloração de status
-                    if coluna == 10:  # Status
+                    # Cores para Status (coluna 11)
+                    if coluna == 11:
                         cor = QColor(173, 216, 230) if valor == 'Expirando' else \
                             QColor(255, 182, 193) if valor == 'Inadimplente' else None
                         if cor:
                             item.setBackground(cor)
 
-                    self.tabela_clientes.setItem(linha, coluna, item)
+                    # Insere o item na tabela (exceto para a coluna 8)
+                    if coluna != 8:
+                        self.tabela_clientes.setItem(linha, coluna, item)
         except Exception as e:
             traceback.print_exc()
             QMessageBox.critical(self, 'Erro', f'Erro ao atualizar tabela: {str(e)}')
