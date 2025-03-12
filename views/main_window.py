@@ -12,15 +12,27 @@ from database.database import Database
 from utils.validators import validar_cpf_cnpj, validar_email
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+import matplotlib.pyplot as plt
 import traceback
 import os
 import hashlib
 import shutil
+import sys
 from utils.whatsapp import enviar_mensagem_whatsapp
+from utils.directory_helper import ensure_comprovantes_dir
 
-COMPROVANTES_DIR = os.path.join(os.path.dirname(__file__), 'comprovantes')
-if not os.path.exists(COMPROVANTES_DIR):
-    os.makedirs(COMPROVANTES_DIR, exist_ok=True)
+# Get the base path for resources
+def get_resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller"""
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
+# Get the comprovantes directory path
+COMPROVANTES_DIR = ensure_comprovantes_dir()
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -28,7 +40,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle('Climaterra - Gerenciamento de Clientes')
         self.resize(1000, 600)
 
-        self.setWindowIcon(QIcon('icones/icone.png'))
+        self.setWindowIcon(QIcon(get_resource_path('icones/icone.png')))
 
         # Inicializa o banco de dados
         self.database = Database()
@@ -54,8 +66,8 @@ class MainWindow(QMainWindow):
         self.tabela_clientes.setColumnCount(15)  # Removido o ID
         self.tabela_clientes.setHorizontalHeaderLabels([
             'ID','Nome', 'Telefone', 'CPF/CNPJ', 'E-mail', 'Período',
-            'Último Pagamento', 'Vencimento', 'Comprovante', 'Data Aviso', 'Avisado',
-            'Status', 'Estado', 'Municipio', 'Observação'
+            'Último Pagamento', 'Vencimento', 'Data Aviso', 'Avisado',
+            'Status', 'Estado', 'Municipio', 'Observação', 'Comprovante'
         ])
         self.tabela_clientes.setStyleSheet("""
             QTableWidget {
@@ -74,49 +86,54 @@ class MainWindow(QMainWindow):
         layout_botoes = QHBoxLayout()
 
         botao_adicionar = QPushButton('Adicionar')
-        botao_adicionar.setIcon(QIcon('icones/add.png'))
+        botao_adicionar.setIcon(QIcon(get_resource_path('icones/add.png')))
         botao_adicionar.setIconSize(QSize(20, 20))
         botao_adicionar.clicked.connect(self.adicionar_cliente)
 
         botao_editar = QPushButton('Editar')
-        botao_editar.setIcon(QIcon('icones/edit.png'))
+        botao_editar.setIcon(QIcon(get_resource_path('icones/edit.png')))
         botao_editar.setIconSize(QSize(20, 20))
         botao_editar.clicked.connect(self.editar_cliente)
 
         botao_remover = QPushButton('Remover')
-        botao_remover.setIcon(QIcon('icones/delete.png'))
+        botao_remover.setIcon(QIcon(get_resource_path('icones/delete.png')))
         botao_remover.setIconSize(QSize(20, 20))
         botao_remover.clicked.connect(self.remover_cliente)
 
         botao_avisar = QPushButton('Avisar')
-        botao_avisar.setIcon(QIcon('icones/aviso.png'))
+        botao_avisar.setIcon(QIcon(get_resource_path('icones/aviso.png')))
         botao_avisar.setIconSize(QSize(20, 20))
         botao_avisar.clicked.connect(self.avisar_cliente)
 
         botao_pesquisar = QPushButton('Pesquisar')
-        botao_pesquisar.setIcon(QIcon('icones/search.png'))
+        botao_pesquisar.setIcon(QIcon(get_resource_path('icones/search.png')))
         botao_pesquisar.setIconSize(QSize(20, 20))
         botao_pesquisar.clicked.connect(self.abrir_janela_pesquisa)
 
         botao_listar = QPushButton('Listar Todos')
-        botao_listar.setIcon(QIcon('icones/refresh.png'))
+        botao_listar.setIcon(QIcon(get_resource_path('icones/refresh.png')))
         botao_listar.setIconSize(QSize(20, 20))
         botao_listar.clicked.connect(self.atualizar_tabela)
 
         botao_renovar = QPushButton('Renovação')
-        botao_renovar.setIcon(QIcon('icones/money.png'))
+        botao_renovar.setIcon(QIcon(get_resource_path('icones/money.png')))
         botao_renovar.setIconSize(QSize(20, 20))
         botao_renovar.clicked.connect(self.abrir_renovacao)
 
         botao_comprovante = QPushButton('Ver Comprovante')
-        botao_comprovante.setIcon(QIcon('icones/request_quote.png'))
+        botao_comprovante.setIcon(QIcon(get_resource_path('icones/request_quote.png')))
         botao_comprovante.setIconSize(QSize(20, 20))
         botao_comprovante.clicked.connect(self.ver_comprovante)
 
         botao_relatorio = QPushButton('Relatório')
-        botao_relatorio.setIcon(QIcon('icones/chart.png'))
+        botao_relatorio.setIcon(QIcon(get_resource_path('icones/chart.png')))
         botao_relatorio.setIconSize(QSize(20, 20))
         botao_relatorio.clicked.connect(self.abrir_janela_relatorio)
+
+        botao_importar = QPushButton('Importar CSV')
+        botao_importar.setIcon(QIcon(get_resource_path('icones/csv.png')))
+        botao_importar.setIconSize(QSize(20, 20))
+        botao_importar.clicked.connect(self.importar_csv)
 
         layout_botoes.addWidget(botao_adicionar)
         layout_botoes.addWidget(botao_editar)
@@ -127,6 +144,7 @@ class MainWindow(QMainWindow):
         layout_botoes.addWidget(botao_renovar)
         layout_botoes.addWidget(botao_comprovante)
         layout_botoes.addWidget(botao_relatorio)
+        layout_botoes.addWidget(botao_importar)
 
         layout_principal.addWidget(self.tabela_clientes)
         layout_principal.addLayout(layout_botoes)
@@ -143,11 +161,14 @@ class MainWindow(QMainWindow):
             self.tabela_clientes.setColumnCount(15)  # Mantenha as 15 colunas
             headers = [
                 'ID','Nome', 'Telefone', 'CPF/CNPJ', 'E-mail', 'Período',
-                'Último Pagamento', 'Vencimento', 'Comprovante', 'Data Aviso', 'Avisado',
-                'Status', 'Estado', 'Municipio', 'Observação'
+                'Último Pagamento', 'Vencimento', 'Data Aviso', 'Avisado',
+                'Status', 'Estado', 'Municipio', 'Observação', 'Comprovante'
             ]
             self.tabela_clientes.setHorizontalHeaderLabels(headers)
             self.tabela_clientes.setColumnHidden(0, True)  # ID permanece oculto
+
+            # Índices das colunas que devem ter alinhamento à esquerda
+            colunas_alinhamento_esquerda = [1, 4, 14]  # Nome, E-mail, Observação
 
             for linha, cliente in enumerate(clientes):
                 for coluna in range(15):  # Itera todas as 15 colunas
@@ -157,20 +178,31 @@ class MainWindow(QMainWindow):
                         self.tabela_clientes.setItem(linha, 0, item)
                         continue
 
-                    if coluna == 8:  # Comprovante (coluna 8)
-                        comprovante = cliente[14]  # Campo "comprovante" está na última posição (índice 14)
+                    if coluna == 14:  # Comprovante (coluna 14)
+                        comprovante = cliente[14]  # Campo "comprovante" está na última posição
                         if comprovante:
                             label = QLabel()
-                            pixmap = QPixmap("icones/check.png").scaled(20, 20)
+                            pixmap = QPixmap(get_resource_path("icones/check.png")).scaled(20, 20)
                             label.setPixmap(pixmap)
                             label.setAlignment(Qt.AlignCenter)
-                            self.tabela_clientes.setCellWidget(linha, 8, label)
+                            self.tabela_clientes.setCellWidget(linha, 14, label)
+                        else:
+                            # Limpa o widget caso não haja comprovante
+                            self.tabela_clientes.setCellWidget(linha, 14, None)
+                            item = QTableWidgetItem("")
+                            item.setTextAlignment(Qt.AlignCenter)
+                            self.tabela_clientes.setItem(linha, 14, item)
                         continue
 
-                    # Mapeamento correto dos índices do banco para a tabela:
-                    # Colunas antes de "Comprovante" (0-7) → índices 1-8 do banco
-                    # Colunas após "Comprovante" (9-14) → índices 9-13 do banco (descontando o "comprovante" no final)
-                    cliente_idx = coluna if coluna <= 7 else (coluna - 1)
+                    # Mapeamento ajustado dos índices do banco para a tabela:
+                    # Colunas 1-7: índices 1-7 do banco
+                    # Colunas 8-13: índices 8-13 do banco (pulando o comprovante)
+                    if coluna >= 1 and coluna <= 7:
+                        cliente_idx = coluna
+                    elif coluna >= 8 and coluna <= 13:
+                        cliente_idx = coluna
+                    else:
+                        cliente_idx = 0  # Valor padrão para evitar erros
 
                     valor = str(cliente[cliente_idx]) if cliente_idx < len(cliente) else ""
 
@@ -179,30 +211,41 @@ class MainWindow(QMainWindow):
                         valor = CadastroClienteDialog.formatar_telefone(valor)
                     elif coluna == 3:  # CPF/CNPJ
                         valor = CadastroClienteDialog.formatar_cpf_cnpj(valor)
-                    elif coluna == 8:  # Comprovante (já tratado)
+                    elif coluna == 14:  # Comprovante (já tratado)
                         continue
-                    elif coluna in [6, 7, 9]:  # Último Pagamento, Vencimento, Data Aviso
+                    elif coluna in [6, 7, 8]:  # Último Pagamento, Vencimento, Data Aviso
                         try:
                             valor = datetime.strptime(valor, "%Y-%m-%d").strftime("%d/%m/%Y")
                         except Exception:
                             pass
-                    elif coluna == 10:  # Avisado
+                    elif coluna == 9:  # Avisado
                         valor = "SIM" if valor == "1" else "NÃO"
 
                     # Definição do item da tabela
                     item = QTableWidgetItem(valor)
-                    item.setTextAlignment(Qt.AlignCenter)  # Centraliza o texto
+                    # Define o alinhamento com base na coluna
+                    if coluna in colunas_alinhamento_esquerda:
+                        item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # Alinhamento à esquerda
+                    else:
+                        item.setTextAlignment(Qt.AlignCenter)  # Centraliza o texto
 
                     # Cores para Status (coluna 11)
-                    if coluna == 11:
+                    if coluna == 10:
                         cor = QColor(173, 216, 230) if valor == 'Expirando' else \
                             QColor(255, 182, 193) if valor == 'Inadimplente' else None
                         if cor:
                             item.setBackground(cor)
 
-                    # Insere o item na tabela (exceto para a coluna 8)
-                    if coluna != 8:
+                    # Insere o item na tabela (exceto para a coluna de comprovante)
+                    if coluna != 14:
                         self.tabela_clientes.setItem(linha, coluna, item)
+                    # Garante que a coluna de comprovante sempre mostre o ícone
+                    elif coluna == 14 and comprovante:
+                        label = QLabel()
+                        pixmap = QPixmap("icones/check.png").scaled(20, 20)
+                        label.setPixmap(pixmap)
+                        label.setAlignment(Qt.AlignCenter)
+                        self.tabela_clientes.setCellWidget(linha, 14, label)
         except Exception as e:
             traceback.print_exc()
             QMessageBox.critical(self, 'Erro', f'Erro ao atualizar tabela: {str(e)}')
@@ -324,6 +367,69 @@ class MainWindow(QMainWindow):
     def exibir_resultados_pesquisa(self, clientes):
         self.tabela_clientes.setRowCount(len(clientes))
 
+        # Índices das colunas que devem ter alinhamento à esquerda
+        colunas_alinhamento_esquerda = [1, 4, 13]  # Nome, E-mail, Observação
+
+        for linha, cliente in enumerate(clientes):
+            # Primeiro, adicione o ID na coluna 0 (mesmo que esteja oculta)
+            id_item = QTableWidgetItem(str(cliente[0]))
+            self.tabela_clientes.setItem(linha, 0, id_item)
+
+            # Processa cada coluna
+            for coluna in range(15):  # Itera todas as 15 colunas
+                if coluna == 0:  # ID (já tratado)
+                    continue
+
+                if coluna == 14:  # Comprovante (coluna 14)
+                    comprovante = cliente[14]  # Campo "comprovante" está na última posição
+                    if comprovante:
+                        label = QLabel()
+                        pixmap = QPixmap("icones/check.png").scaled(20, 20)
+                        label.setPixmap(pixmap)
+                        label.setAlignment(Qt.AlignCenter)
+                        self.tabela_clientes.setCellWidget(linha, 14, label)
+                    else:
+                        # Limpa o widget caso não haja comprovante
+                        self.tabela_clientes.setCellWidget(linha, 14, None)
+                        item = QTableWidgetItem("")
+                        item.setTextAlignment(Qt.AlignCenter)
+                        self.tabela_clientes.setItem(linha, 14, item)
+                    continue
+
+                # Para as outras colunas
+                cliente_idx = coluna
+                valor = str(cliente[cliente_idx]) if cliente_idx < len(cliente) else ""
+
+                # Formatações específicas
+                if coluna == 2:  # Telefone
+                    valor = CadastroClienteDialog.formatar_telefone(valor)
+                elif coluna == 3:  # CPF/CNPJ
+                    valor = CadastroClienteDialog.formatar_cpf_cnpj(valor)
+                elif coluna in [6, 7, 8]:  # Último Pagamento, Vencimento, Data Aviso
+                    try:
+                        valor = datetime.strptime(valor, "%Y-%m-%d").strftime("%d/%m/%Y")
+                    except Exception:
+                        pass
+                elif coluna == 9:  # Avisado
+                    valor = "SIM" if valor == "1" else "NÃO"
+
+                # Cria e configura o item da tabela
+                item = QTableWidgetItem(valor)
+                if coluna in colunas_alinhamento_esquerda:
+                    item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+                else:
+                    item.setTextAlignment(Qt.AlignCenter)
+
+                # Cores para Status (coluna 10)
+                if coluna == 10:
+                    cor = QColor(173, 216, 230) if valor == 'Expirando' else \
+                        QColor(255, 182, 193) if valor == 'Inadimplente' else None
+                    if cor:
+                        item.setBackground(cor)
+
+                self.tabela_clientes.setItem(linha, coluna, item)
+        self.tabela_clientes.setRowCount(len(clientes))
+
         # Índices das colunas de data
         COLUNA_STATUS = 9  # Índice da coluna de status
         colunas_datas = [5, 6]  # Último Pagamento e Vencimento
@@ -344,6 +450,12 @@ class MainWindow(QMainWindow):
                         item.setText(data_iso.strftime("%d/%m/%Y"))
                     except (ValueError, TypeError):
                         pass
+
+                # Define o alinhamento com base na coluna
+                if coluna in colunas_alinhamento_esquerda:
+                    item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # Alinhamento à esquerda
+                else:
+                    item.setTextAlignment(Qt.AlignCenter)  # Centraliza o texto
 
                 # Aplicar cores baseadas no status
                 if coluna - 1 == COLUNA_STATUS:  # -1 pela mesma razão
@@ -409,6 +521,39 @@ class MainWindow(QMainWindow):
     def abrir_janela_relatorio(self):
         dialog = RelatorioDialog(self)
         dialog.exec_()
+
+    def importar_csv(self):
+        try:
+            # Abre o diálogo para selecionar o arquivo CSV
+            arquivo_csv, _ = QFileDialog.getOpenFileName(
+                self,
+                'Selecionar arquivo CSV',
+                '',
+                'Arquivos CSV (*.csv)'
+            )
+
+            if arquivo_csv:
+                # Tenta importar o arquivo CSV usando o método do banco de dados
+                registros_importados, registros_falhos = self.database.importar_csv(arquivo_csv)
+
+                # Exibe mensagem com o resultado da importação
+                QMessageBox.information(
+                    self,
+                    'Importação Concluída',
+                    f'Importação concluída com sucesso!\n\n'
+                    f'Registros importados: {registros_importados}\n'
+                    f'Registros com falha: {registros_falhos}'
+                )
+
+                # Atualiza a tabela para mostrar os novos registros
+                self.atualizar_tabela()
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                'Erro na Importação',
+                f'Ocorreu um erro durante a importação:\n{str(e)}'
+            )
 
     def avisar_cliente(self):
         linha_selecionada = self.tabela_clientes.currentRow()
@@ -481,7 +626,10 @@ class CadastroClienteDialog(QDialog):
             layout.addRow('Status:', self.status)
 
             layout.addRow('Data Aviso:', self.data_aviso)
-            layout.addRow('Avisado:', self.avisado)
+            # Checkbox para Avisado
+            self.chk_avisado = QCheckBox("Avisado")
+            self.chk_avisado.setChecked(True)  # Set to True by default
+            layout.addRow("Avisado:", self.chk_avisado)
 
         self.estado = QComboBox()
         estados_brasileiros = [
@@ -1057,8 +1205,19 @@ class RelatorioDialog(QDialog):
         self.btn_municipio = QPushButton('Município', self)
         self.btn_municipio.clicked.connect(self.gerar_relatorio_municipio)
 
+        # Botões de zoom
+        zoom_layout = QHBoxLayout()
+        self.btn_zoom_in = QPushButton('Zoom +', self)
+        self.btn_zoom_in.clicked.connect(self.zoom_in)
+        self.btn_zoom_out = QPushButton('Zoom -', self)
+        self.btn_zoom_out.clicked.connect(self.zoom_out)
+
+        zoom_layout.addWidget(self.btn_zoom_in)
+        zoom_layout.addWidget(self.btn_zoom_out)
+
         btn_top_layout.addWidget(self.btn_estado)
         btn_top_layout.addWidget(self.btn_municipio)
+        btn_top_layout.addLayout(zoom_layout)
 
         # Área do gráfico
         self.figure = Figure()
@@ -1121,49 +1280,80 @@ class RelatorioDialog(QDialog):
         for municipio in municipios:
             contagem[municipio] = contagem.get(municipio, 0) + 1
 
-        self.plot_bar_chart(contagem, 'Distribuição de Clientes por Município')
+        self.plot_pie_chart(contagem, 'Distribuição de Clientes por Município')
 
     def plot_pie_chart(self, data, title):
         self.figure.clear()
+        # Set a larger figure size and adjust layout
+        self.figure.set_size_inches(10, 8)
         ax = self.figure.add_subplot(111)
 
         labels = list(data.keys())
         sizes = list(data.values())
 
-        ax.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90)
+        # Create custom labels with both percentage and absolute numbers
+        total = sum(sizes)
+        custom_labels = [f'{label}\n{size} ({size/total*100:.1f}%)' for label, size in zip(labels, sizes)]
+
+        ax.pie(sizes, labels=custom_labels, startangle=90)
         ax.axis('equal')
-        ax.set_title(title)
+        # Add padding between title and plot
+        ax.set_title(title, pad=20)
+        
+        # Adjust layout to prevent overlapping
+        self.figure.tight_layout()
 
         self.current_figure = self.figure
         self.canvas.draw()
 
     def plot_bar_chart(self, data, title):
-        self.figure.clear()
-        ax = self.figure.add_subplot(111)
+        # Limpa a figura atual se existir
+        if self.current_figure:
+            plt.close(self.current_figure)
 
-        labels = list(data.keys())
-        values = list(data.values())
-        total = sum(values)
+        # Cria uma nova figura
+        fig, ax = plt.subplots(figsize=(10, 6))
+        bars = ax.bar(range(len(data)), list(data.values()))
 
-        # Ordenar por quantidade
-        sorted_data = sorted(zip(labels, values), key=lambda x: x[1], reverse=True)
-        labels = [item[0] for item in sorted_data]
-        values = [item[1] for item in sorted_data]
-        porcentagens = [f'{(v/total)*100:.1f}%' for v in values]
-
-        bars = ax.bar(labels, values)
+        # Personaliza o gráfico
         ax.set_title(title)
+        ax.set_ylabel('Quantidade de Clientes')
+
+        # Ajusta os rótulos do eixo x
+        labels = list(data.keys())
+        ax.set_xticks(range(len(data)))
         ax.set_xticklabels(labels, rotation=45, ha='right')
 
-        # Adicionar labels
-        for bar, porcentagem in zip(bars, porcentagens):
+        # Adiciona os valores sobre as barras
+        for bar in bars:
             height = bar.get_height()
             ax.text(bar.get_x() + bar.get_width()/2., height,
-                    f'{height}\n({porcentagem})',
+                    f'{int(height)}',
                     ha='center', va='bottom')
 
-        self.current_figure = self.figure
+        # Ajusta o layout para evitar cortes nos rótulos
+        plt.tight_layout()
+
+        # Atualiza a figura atual
+        self.current_figure = fig
+        
+        # Atualiza o canvas para exibir o gráfico
         self.canvas.draw()
+
+        # Retorna a figura para exibição
+        return fig
+
+    def zoom_in(self):
+        if self.current_figure:
+            current_size = self.figure.get_size_inches()
+            self.figure.set_size_inches(current_size[0] * 1.2, current_size[1] * 1.2)
+            self.canvas.draw()
+
+    def zoom_out(self):
+        if self.current_figure:
+            current_size = self.figure.get_size_inches()
+            self.figure.set_size_inches(current_size[0] / 1.2, current_size[1] / 1.2)
+            self.canvas.draw()
 
 class AvisoClienteDialog(QDialog):
     def __init__(self, parent=None, cliente=None):
@@ -1183,14 +1373,18 @@ class AvisoClienteDialog(QDialog):
 
         # Checkbox para Avisado
         self.chk_avisado = QCheckBox("Avisado")
-        self.chk_avisado.setChecked(False)
+        self.chk_avisado.setChecked(True)  # Set to True by default
         layout.addRow("Avisado:", self.chk_avisado)
 
         # Botão WhatsApp (ícone) para enviar mensagem
         self.btn_whatsapp = QPushButton()
-        self.btn_whatsapp.setIcon(QIcon("icones/whatsapp.png"))
+        self.btn_whatsapp.setIcon(QIcon(get_resource_path('icones/whatsapp.png')))
         self.btn_whatsapp.setIconSize(QSize(24, 24))
         self.btn_whatsapp.clicked.connect(self.enviar_whatsapp)
+
+        # Botão Limpar para resetar os campos
+        self.btn_limpar = QPushButton("Limpar")
+        self.btn_limpar.clicked.connect(self.limpar_campos)
 
         # Botões de ação: Salvar e Cancelar
         self.btn_salvar = QPushButton("Salvar")
@@ -1201,15 +1395,27 @@ class AvisoClienteDialog(QDialog):
         # Layout horizontal para os botões
         btn_layout = QHBoxLayout()
         btn_layout.addWidget(self.btn_whatsapp)
+        btn_layout.addWidget(self.btn_limpar)
         btn_layout.addWidget(self.btn_salvar)
         btn_layout.addWidget(self.btn_cancelar)
 
         layout.addRow(btn_layout)
         self.setLayout(layout)
 
+    def limpar_campos(self):
+        # Limpa a data (define como null no banco)
+        self.data_aviso.setDate(QDate())
+        # Desmarca o checkbox
+        self.chk_avisado.setChecked(False)
+        # Salva as alterações no banco
+        cliente_id = self.cliente['id'] if isinstance(self.cliente, dict) else self.cliente[0]
+        self.database.atualizar_aviso_cliente(cliente_id, None, 0)
+        # Fecha a janela
+        self.accept()
+
     def salvar_aviso(self):
         # Recupera a data em formato 'yyyy-MM-dd'
-        data_aviso_str = self.data_aviso.date().toString("yyyy-MM-dd")
+        data_aviso_str = self.data_aviso.date().toString("yyyy-MM-dd") if self.data_aviso.date().isValid() else None
         # Define o valor do campo Avisado: 1 para SIM se estiver marcado, senão 0
         avisado_valor = 1 if self.chk_avisado.isChecked() else 0
 
@@ -1217,7 +1423,6 @@ class AvisoClienteDialog(QDialog):
         cliente_id = self.cliente['id'] if isinstance(self.cliente, dict) else self.cliente[0]
 
         # Chama um método do banco de dados para atualizar os campos "data_aviso" e "avisado"
-        # (Você precisará implementar esse método na sua classe Database, por exemplo, atualizar_aviso_cliente)
         self.database.atualizar_aviso_cliente(cliente_id, data_aviso_str, avisado_valor)
 
         self.accept()

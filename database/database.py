@@ -192,3 +192,76 @@ class Database:
         except Exception as e:
             print("Erro ao atualizar aviso:", e)
             raise
+
+    def importar_csv(self, arquivo_csv: str) -> tuple[int, int]:
+        """Importa dados de um arquivo CSV para o banco de dados.
+
+        Args:
+            arquivo_csv (str): Caminho do arquivo CSV a ser importado
+
+        Returns:
+            tuple[int, int]: Tupla contendo (registros_importados, registros_falhos)
+        """
+        from datetime import datetime
+        import csv
+        from utils.validators import validar_cpf_cnpj, validar_email
+
+        registros_importados = 0
+        registros_falhos = 0
+
+        try:
+            with open(arquivo_csv, 'r', encoding='utf-8') as file:
+                leitor_csv = csv.DictReader(file)
+                
+                for linha in leitor_csv:
+                    try:
+                        # Validações básicas
+                        if not linha['nome'].strip():
+                            raise ValueError('Nome é obrigatório')
+                        
+                        if linha['cpf_cnpj'] and not validar_cpf_cnpj(linha['cpf_cnpj']):
+                            raise ValueError('CPF/CNPJ inválido')
+                        
+                        if linha['email'] and not validar_email(linha['email']):
+                            raise ValueError('E-mail inválido')
+
+                        # Conversão de datas
+                        ultimo_pagamento = datetime.strptime(linha['ultimo_pagamento'], '%Y-%m-%d').date() if linha['ultimo_pagamento'] else None
+                        vencimento = datetime.strptime(linha['vencimento'], '%Y-%m-%d').date() if linha['vencimento'] else None
+                        data_aviso = datetime.strptime(linha['data_aviso'], '%Y-%m-%d').date() if linha['data_aviso'] else None
+
+                        # Mapeamento de status
+                        status = linha['status']
+                        if status == 'Ativo':
+                            status = 'Em dia'
+
+                        # Preparação dos dados para inserção
+                        cliente = (
+                            linha['nome'],
+                            linha['telefone'],
+                            linha['cpf_cnpj'],
+                            linha['email'],
+                            int(linha['periodo_assinatura']) if linha['periodo_assinatura'] else 0,
+                            ultimo_pagamento.strftime('%Y-%m-%d') if ultimo_pagamento else None,
+                            vencimento.strftime('%Y-%m-%d') if vencimento else None,
+                            data_aviso.strftime('%Y-%m-%d') if data_aviso else None,
+                            bool(int(linha['avisado'])) if linha['avisado'] else False,
+                            status,
+                            linha['estado'],
+                            linha['cidade'],
+                            linha['observacao'],
+                            linha['comprovante']
+                        )
+
+                        self.adicionar_cliente(cliente)
+                        registros_importados += 1
+
+                    except Exception as e:
+                        print(f'Erro ao importar linha: {e}')
+                        registros_falhos += 1
+
+            return registros_importados, registros_falhos
+
+        except Exception as e:
+            print(f'Erro ao abrir arquivo CSV: {e}')
+            raise
