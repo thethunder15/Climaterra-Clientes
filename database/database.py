@@ -219,8 +219,11 @@ class Database:
                         if not linha['nome'].strip():
                             raise ValueError('Nome é obrigatório')
                         
-                        if linha['cpf_cnpj'] and not validar_cpf_cnpj(linha['cpf_cnpj']):
-                            raise ValueError('CPF/CNPJ inválido')
+                        # Permitir CPF/CNPJ vazio ou validar se preenchido
+                        if linha['cpf_cnpj']:
+                            cpf_cnpj_limpo = ''.join(filter(str.isdigit, linha['cpf_cnpj']))
+                            if not validar_cpf_cnpj(cpf_cnpj_limpo):
+                                raise ValueError(f'CPF/CNPJ inválido: {linha["cpf_cnpj"]}')
                         
                         if linha['email'] and not validar_email(linha['email']):
                             raise ValueError('E-mail inválido')

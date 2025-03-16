@@ -587,9 +587,9 @@ class CadastroClienteDialog(QDialog):
 
         self.nome = QLineEdit()
 
-        # Configuração do QLineEdit para Telefone com máscara dinâmica
+        # Configuração do QLineEdit para Telefone com máscara fixa para celular (11 dígitos)
         self.telefone = QLineEdit()
-        self.telefone.setInputMask('(00) 0000-0000;_')
+        self.telefone.setInputMask('(00) 00000-0000;_')
         self.telefone.textChanged.connect(self.atualizarMascaraTelefone)
 
         # Configuração do QLineEdit para CPF/CNPJ com máscara dinâmica
@@ -613,23 +613,12 @@ class CadastroClienteDialog(QDialog):
         self.periodo_assinatura.textChanged.connect(self.calcular_vencimento)
         self.ultimo_pagamento.dateChanged.connect(self.calcular_vencimento)
 
-        # Campos de aviso e avisado serão ocultados na inclusão
-        self.data_aviso = QDateEdit()
-        self.data_aviso.setCalendarPopup(True)
-        self.avisado = QCheckBox()
-
         # Status será exibido apenas na edição
         self.status = None
         if cliente:
             self.status = QComboBox()
             self.status.addItems(['Em dia', 'Expirando', 'Inadimplente'])
             layout.addRow('Status:', self.status)
-
-            layout.addRow('Data Aviso:', self.data_aviso)
-            # Checkbox para Avisado
-            self.chk_avisado = QCheckBox("Avisado")
-            self.chk_avisado.setChecked(True)  # Set to True by default
-            layout.addRow("Avisado:", self.chk_avisado)
 
         self.estado = QComboBox()
         estados_brasileiros = [
@@ -680,10 +669,9 @@ class CadastroClienteDialog(QDialog):
     @staticmethod
     def formatar_telefone(telefone: str) -> str:
         numeros = ''.join(filter(str.isdigit, telefone))
-        if len(numeros) == 10:
-            return f"({numeros[:2]}) {numeros[2:6]}-{numeros[6:]}"
-        elif len(numeros) == 11:
+        if len(numeros) == 11:
             return f"({numeros[:2]}) {numeros[2:7]}-{numeros[7:]}"
+        # Se não tiver 11 dígitos, retorna o formato original
         return telefone
 
     @staticmethod
@@ -698,14 +686,26 @@ class CadastroClienteDialog(QDialog):
     def atualizarMascaraTelefone(self, text):
         # Remove caracteres não numéricos para contar os dígitos
         digits = ''.join(filter(str.isdigit, text))
-        # Se tiver mais de 10 dígitos, assume telefone com 11 dígitos
-        new_mask = '(00) 00000-0000;_' if len(digits) > 10 else '(00) 0000-0000;_'
+        
+        # Sempre usa a máscara de celular (11 dígitos)
+        new_mask = '(00) 00000-0000;_'
+        
         if self.telefone.inputMask() != new_mask:
             # Bloqueia sinais para evitar loop
             self.telefone.blockSignals(True)
+            cursor_pos = self.telefone.cursorPosition()
             self.telefone.setInputMask(new_mask)
-            # Reaplica o texto sem máscara (apenas os dígitos)
+            
+            # Limita para exatamente 11 dígitos (celular)
+            if len(digits) > 11:
+                digits = digits[:11]  # Limita a 11 dígitos
+                
             self.telefone.setText(digits)
+            
+            # Tenta manter a posição do cursor
+            if cursor_pos < len(self.telefone.text()):
+                self.telefone.setCursorPosition(cursor_pos)
+                
             self.telefone.blockSignals(False)
 
     def atualizarMascaraCpfCnpj(self, text):
@@ -780,7 +780,19 @@ class CadastroClienteDialog(QDialog):
         # Se o cliente for um dicionário, use os nomes das chaves
         if isinstance(cliente, dict):
             self.nome.setText(str(cliente.get('nome', '')))
-            self.telefone.setText(str(cliente.get('telefone', '')))
+            
+            # Tratamento especial para o telefone
+            telefone = str(cliente.get('telefone', ''))
+            # Extrai apenas os dígitos do telefone
+            digits = ''.join(filter(str.isdigit, telefone))
+            
+            # Sempre usa a máscara de celular (11 dígitos)
+            new_mask = '(00) 00000-0000;_'
+            self.telefone.blockSignals(True)
+            self.telefone.setInputMask(new_mask)
+            self.telefone.setText(digits)
+            self.telefone.blockSignals(False)
+            
             self.cpf_cnpj.setText(str(cliente.get('cpf_cnpj', '')))
             self.email.setText(str(cliente.get('email', '')))
 
@@ -812,23 +824,7 @@ class CadastroClienteDialog(QDialog):
             self.cidade.setText(str(cliente.get('cidade', '')))
             self.observacao.setText(str(cliente.get('observacao', '')))
 
-            # Data aviso
-            try:
-                data_aviso = QDate.fromString(str(cliente.get('data_aviso', '')), 'yyyy-MM-dd')
-                if data_aviso.isValid():
-                    self.data_aviso.setDate(data_aviso)
-                else:
-                    self.data_aviso.setDate(QDate.currentDate())
-            except Exception:
-                self.data_aviso.setDate(QDate.currentDate())
-            self.data_aviso.setEnabled(False)
 
-            # Avisado
-            try:
-                self.avisado.setChecked(bool(int(cliente.get('avisado', 0))))
-            except Exception:
-                self.avisado.setChecked(False)
-            self.avisado.setEnabled(False)
 
             # Status
             if self.status:
@@ -842,6 +838,12 @@ class CadastroClienteDialog(QDialog):
         try:
             if not self.nome.text():
                 QMessageBox.warning(self, 'Erro', 'Nome é obrigatório')
+                return
+                
+            # Validação para garantir que o telefone tenha exatamente 11 dígitos
+            telefone_digits = ''.join(filter(str.isdigit, self.telefone.text()))
+            if len(telefone_digits) != 11:
+                QMessageBox.warning(self, 'Erro', 'O telefone deve ter exatamente 11 dígitos')
                 return
 
             if not validar_cpf_cnpj(self.cpf_cnpj.text()):
@@ -880,8 +882,8 @@ class CadastroClienteDialog(QDialog):
                     int(self.cliente.get('periodo_assinatura', 1)),  # Acessa como dicionário
                     self.cliente.get('ultimo_pagamento', QDate.currentDate().toString("yyyy-MM-dd")),
                     self.cliente.get('vencimento', ''),
-                    self.cliente.get('data_aviso', ''),
-                    int(self.cliente.get('avisado', 0)),
+                    None,
+                    0,
                     self.cliente.get('status', 'Em dia'),
                     self.estado.currentText(),
                     self.cidade.text(),
@@ -1430,5 +1432,5 @@ class AvisoClienteDialog(QDialog):
     def enviar_whatsapp(self):
         # Recupera o telefone do cliente – adapte conforme sua estrutura de dados
         telefone = self.cliente['telefone'] if isinstance(self.cliente, dict) else self.cliente[2]
-        enviar_mensagem_whatsapp(telefone)
+        enviar_whatsapp(telefone)
 
