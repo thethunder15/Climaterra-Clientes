@@ -1432,5 +1432,5 @@ class AvisoClienteDialog(QDialog):
     def enviar_whatsapp(self):
         # Recupera o telefone do cliente – adapte conforme sua estrutura de dados
         telefone = self.cliente['telefone'] if isinstance(self.cliente, dict) else self.cliente[2]
-        enviar_whatsapp(telefone)
+        enviar_mensagem_whatsapp(telefone)
 
